@@ -1,0 +1,5 @@
+{
+  "name": "SisuLead Miner",
+  "description": "Finnish B2B lead generation tool for finding marketing decision-makers using Gemini AI and Apify Website Content Crawler.",
+  "requestFramePermissions": []
+}
