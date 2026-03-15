@@ -31,22 +31,38 @@ export interface JinaResult {
 
 // Parses the final URL from Jina's SSE response (event: metadata / data: {"url": ...}).
 function parseFinalUrl(sseText: string, fallback: string): string {
-  const lines = sseText.split('\n');
-  for (let i = 0; i < lines.length - 1; i++) {
+  // SSE uses \r\n; strip \r so line comparisons work reliably
+  const lines = sseText.split('\n').map(l => l.replace(/\r$/, ''));
+
+  // Look for event: metadata, then find the next non-empty data: line
+  for (let i = 0; i < lines.length; i++) {
     if (lines[i].trim() === 'event: metadata') {
-      const dataLine = lines[i + 1];
-      if (dataLine?.startsWith('data:')) {
-        try {
-          const json = JSON.parse(dataLine.slice(5).trim());
-          if (typeof json.url === 'string' && json.url.startsWith('http')) {
-            return json.url;
-          }
-        } catch {
-          // malformed JSON — fall through to fallback
+      for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+        if (lines[j].trim() === '') continue;
+        if (lines[j].startsWith('data:')) {
+          try {
+            const json = JSON.parse(lines[j].slice(5).trim());
+            if (typeof json.url === 'string' && json.url.startsWith('http')) {
+              return json.url;
+            }
+          } catch { /* malformed — keep looking */ }
         }
+        break;
       }
     }
   }
+
+  // Fallback: scan all data: lines for any JSON blob containing a url field
+  for (const line of lines) {
+    if (!line.startsWith('data:')) continue;
+    try {
+      const json = JSON.parse(line.slice(5).trim());
+      if (typeof json.url === 'string' && json.url.startsWith('http')) {
+        return json.url;
+      }
+    } catch { /* not JSON */ }
+  }
+
   return fallback;
 }
 
