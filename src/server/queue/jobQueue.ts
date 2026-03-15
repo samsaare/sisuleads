@@ -72,6 +72,16 @@ export function stopQueue() {
   broadcastStatus();
 }
 
+export function clearQueue() {
+  const db = getDb();
+  queue.clear();
+  isRunning = false;
+  db.prepare(
+    "UPDATE leads SET status = 'pending', status_message = '', updated_at = ? WHERE status IN ('queued', 'processing')"
+  ).run(Date.now());
+  broadcastStatus();
+}
+
 // On server startup, re-enqueue any leads stuck in 'processing' or 'queued'
 export function recoverStuckLeads() {
   const db = getDb();

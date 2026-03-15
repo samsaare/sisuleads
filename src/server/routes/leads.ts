@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ulid } from 'ulid';
 import { getDb } from '../db/connection.js';
+import { broadcast } from '../queue/sseManager.js';
 
 const router = Router();
 
@@ -134,10 +135,12 @@ router.patch('/:id', (req, res) => {
   res.json(db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id));
 });
 
-// Delete a lead
+// Delete a lead (and its logs)
 router.delete('/:id', (req, res) => {
   const db = getDb();
+  db.prepare('DELETE FROM lead_logs WHERE lead_id = ?').run(req.params.id);
   db.prepare('DELETE FROM leads WHERE id = ?').run(req.params.id);
+  broadcast({ type: 'lead.deleted', payload: { leadId: req.params.id } });
   res.json({ ok: true });
 });
 

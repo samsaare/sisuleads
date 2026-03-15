@@ -57,6 +57,9 @@ const api = {
   async stopJobs() {
     await fetch('/api/jobs/stop', { method: 'POST' });
   },
+  async clearJobs() {
+    await fetch('/api/jobs/clear', { method: 'POST' });
+  },
   exportCsvUrl(campaignId: string) {
     return `/api/leads/export/csv?campaignId=${campaignId}`;
   },
@@ -123,6 +126,14 @@ export default function App() {
           ...prev,
           [leadId]: [...(prev[leadId] || []), log],
         }));
+      }
+
+      if (event.type === 'lead.deleted') {
+        const { leadId } = event.payload;
+        setLeads(prev => prev.filter(l => l.id !== leadId));
+        setLeadLogs(prev => { const next = { ...prev }; delete next[leadId]; return next; });
+        setSelectedLeadId(prev => prev === leadId ? null : prev);
+        setShowReasoningId(prev => prev === leadId ? null : prev);
       }
 
       if (event.type === 'queue.status') {
@@ -208,6 +219,15 @@ export default function App() {
 
   const stopProcessing = async () => {
     await api.stopJobs();
+  };
+
+  const clearProcessing = async () => {
+    await api.clearJobs();
+  };
+
+  const deleteLead = async (leadId: string) => {
+    setLeads(prev => prev.filter(l => l.id !== leadId));
+    await api.deleteLead(leadId);
   };
 
   const selectedLead = leads.find(l => l.id === selectedLeadId);
@@ -524,12 +544,20 @@ export default function App() {
                 <AlertCircle size={12} />
                 {isRunning ? 'Käsitellään...' : 'Jono'}
               </h3>
-              {isRunning && (
-                <button onClick={stopProcessing}
-                  className="flex items-center gap-1 text-[10px] text-red-400 hover:text-red-300 uppercase font-bold border border-red-400/30 px-2 py-1 rounded">
-                  <Square size={10} /> Pysäytä
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {isRunning && (
+                  <button onClick={stopProcessing}
+                    className="flex items-center gap-1 text-[10px] text-red-400 hover:text-red-300 uppercase font-bold border border-red-400/30 px-2 py-1 rounded">
+                    <Square size={10} /> Pysäytä
+                  </button>
+                )}
+                {queueStatus.pending > 0 && (
+                  <button onClick={clearProcessing}
+                    className="flex items-center gap-1 text-[10px] text-orange-400 hover:text-orange-300 uppercase font-bold border border-orange-400/30 px-2 py-1 rounded">
+                    Tyhjennä
+                  </button>
+                )}
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3 text-[11px] font-mono">
               <div className="bg-white/5 rounded p-2">
@@ -687,13 +715,22 @@ export default function App() {
                                   {lead.statusMessage}
                                 </div>
                               </div>
-                              <button
-                                onClick={() => setSelectedLeadId(lead.id)}
-                                className="p-2 hover:bg-[#141414] hover:text-[#E4E3E0] rounded-md transition-all opacity-0 group-hover/row:opacity-100"
-                                title="Avaa konsoli"
-                              >
-                                <FileText size={13} />
-                              </button>
+                              <div className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-all">
+                                <button
+                                  onClick={() => setSelectedLeadId(lead.id)}
+                                  className="p-2 hover:bg-[#141414] hover:text-[#E4E3E0] rounded-md transition-all"
+                                  title="Avaa konsoli"
+                                >
+                                  <FileText size={13} />
+                                </button>
+                                <button
+                                  onClick={() => deleteLead(lead.id)}
+                                  className="p-2 hover:bg-red-500/20 hover:text-red-400 rounded-md transition-all"
+                                  title="Poista"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
                             </div>
                           </td>
                         </motion.tr>

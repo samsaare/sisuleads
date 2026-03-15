@@ -71,4 +71,5 @@ export interface QueueStatus {
 export type SSEEvent =
   | { type: 'lead.updated'; payload: Lead }
   | { type: 'lead.log'; payload: { leadId: string; log: LogEntry } }
+  | { type: 'lead.deleted'; payload: { leadId: string } }
   | { type: 'queue.status'; payload: QueueStatus };

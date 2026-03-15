@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { enqueueCampaign, stopQueue, getQueueStatus } from '../queue/jobQueue.js';
+import { enqueueCampaign, stopQueue, clearQueue, getQueueStatus } from '../queue/jobQueue.js';
 
 const router = Router();
 
@@ -13,6 +13,11 @@ router.post('/start', (req, res) => {
 
 router.post('/stop', (_req, res) => {
   stopQueue();
+  res.json({ ok: true });
+});
+
+router.post('/clear', (_req, res) => {
+  clearQueue();
   res.json({ ok: true });
 });
 
