@@ -2,11 +2,20 @@ import { appendFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const LOG_PATH = join(__dirname, '../../data/server.log');
+function getLogDir(): string {
+  // In packaged Electron: log to userData (writable, persists across updates)
+  if (process.env.SISULEAD_USERDATA) {
+    return process.env.SISULEAD_USERDATA;
+  }
+  // Development: log to project data/ directory
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  return join(__dirname, '../../data');
+}
 
-// Ensure data/ exists
-try { mkdirSync(join(__dirname, '../../data'), { recursive: true }); } catch {}
+const logDir = getLogDir();
+const LOG_PATH = join(logDir, 'server.log');
+
+try { mkdirSync(logDir, { recursive: true }); } catch {}
 
 function write(level: string, ...args: any[]) {
   const ts = new Date().toISOString();

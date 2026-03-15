@@ -1,7 +1,13 @@
 import { config } from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-config({ path: join(dirname(fileURLToPath(import.meta.url)), '../../.env.local') });
+
+// In packaged Electron: SISULEAD_RESOURCES points to the resources/ directory
+// In development: load from project root (two levels up from src/server/)
+const envPath = process.env.SISULEAD_RESOURCES
+  ? join(process.env.SISULEAD_RESOURCES, '.env.local')
+  : join(dirname(fileURLToPath(import.meta.url)), '../../.env.local');
+config({ path: envPath });
 import express from 'express';
 import cors from 'cors';
 import { logger } from './logger.js';

@@ -1,16 +1,23 @@
 {
-  "name": "react-example",
+  "name": "sisulead-miner",
+  "productName": "SisuLead Miner",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "server": "node scripts/start-server.mjs",
     "start": "concurrently \"npm run dev\" \"npm run server\"",
     "build": "vite build",
+    "build:server": "node build-server.mjs",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "electron:dev": "npm run build:server && npm run build:electron && electron .",
+    "dist": "npm run build && npm run build:server && npm run build:electron && electron-builder",
     "preview": "vite preview",
-    "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "clean": "rm -rf dist dist-server dist-electron release",
+    "lint": "tsc --noEmit",
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -33,14 +40,60 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.7.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "electron": "^34.5.8",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.25.12",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
+  },
+  "build": {
+    "appId": "fi.sisulead.miner",
+    "productName": "SisuLead Miner",
+    "copyright": "Sisäinen työkalu",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**",
+      "node_modules/bindings/**",
+      "node_modules/file-uri-to-path/**"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "node_modules/**",
+      "!node_modules/.cache/**",
+      "!node_modules/.vite/**"
+    ],
+    "extraResources": [
+      {
+        "from": ".env.local",
+        "to": ".env.local"
+      },
+      {
+        "from": "dist-server",
+        "to": "dist-server"
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

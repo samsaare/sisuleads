@@ -1,23 +1,38 @@
 import Database from 'better-sqlite3';
-import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { mkdirSync } from 'fs';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = join(__dirname, '../../../data/sisulead.db');
-const SCHEMA_PATH = join(__dirname, 'schema.sql');
+// esbuild inlines .sql files as string constants when loader: { '.sql': 'text' } is set.
+// In development (tsx), the import is resolved normally via the file system.
+import SCHEMA_SQL from './schema.sql';
 
 let _db: Database.Database | null = null;
 
+function getDbPath(): string {
+  // In packaged Electron: SISULEAD_USERDATA is set by the main process
+  if (process.env.SISULEAD_USERDATA) {
+    return join(process.env.SISULEAD_USERDATA, 'sisulead.db');
+  }
+  // Development: use project-local data/ directory
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  return join(__dirname, '../../../data/sisulead.db');
+}
+
 export function getDb(): Database.Database {
   if (!_db) {
-    _db = new Database(DB_PATH);
+    const dbPath = getDbPath();
+
+    // Ensure the directory exists (important for first run in userData)
+    const dbDir = dirname(dbPath);
+    mkdirSync(dbDir, { recursive: true });
+
+    _db = new Database(dbPath);
     _db.pragma('journal_mode = WAL');
     _db.pragma('foreign_keys = ON');
 
-    // Run migrations on first connection
-    const schema = readFileSync(SCHEMA_PATH, 'utf-8');
-    _db.exec(schema);
+    // Run schema (inlined by esbuild, or imported as text in dev)
+    _db.exec(SCHEMA_SQL);
 
     // Runtime migrations: add columns that may be missing in existing DBs
     const campaignCols = (_db.prepare("PRAGMA table_info(campaigns)").all() as any[]).map(c => c.name);
