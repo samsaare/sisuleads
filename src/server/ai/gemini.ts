@@ -66,13 +66,9 @@ Domain: ${domain}
 Etsi linkeistä KORKEINTAAN KAKSI (2) URL-osoitetta, jotka todennäköisimmin sisältävät
 yrityksen henkilöstön tai päättäjien HENKILÖKOHTAISET yhteystiedot.
 
-Priorisoi sivut tässä järjestyksessä:
-1. /yhteystiedot, /tiimi, /henkilosto, /meista, /about, /contact, /people, /team
-2. Muut sivut, joilla voi olla henkilölistaus tai henkilökohtaisia yhteystietoja
-
-ÄLÄ SISÄLLYTÄ sivuja, jotka ovat todennäköisesti pelkkiä yhteydenottolomakkeita
-(esim. /ota-yhteytta, /contact-form, /lomake, /palaute, /yhteydenottolomake)
-— elleivät ne ole ainoa vaihtoehto eikä mitään muuta löydy.
+Priorisoi sivut, joiden nimestä tai kontekstista voi päätellä että niillä listataan
+henkilöstöä tai yhteystietoja: esim. /yhteystiedot, /tiimi, /henkilosto, /meista,
+/about, /contact, /people, /team, /ota-yhteytta tai vastaavat.
 
 Palauta URL:t JSON-taulukkona tärkeysjärjestyksessä. Jos vain yksi hyvä vaihtoehto,
 palauta taulukko jossa yksi alkio. Jos ei yhtään sopivaa, palauta tyhjä taulukko [].
