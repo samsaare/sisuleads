@@ -57,7 +57,9 @@ export async function findContactUrlCandidates(
   log: (msg: string, level?: 'info' | 'success' | 'warning' | 'error') => void
 ): Promise<string[]> {
   log('Agentti (Reitittäjä): Etsitään yhteystietosivuehdokkaat linkeistä...', 'info');
-  const textEnd = content.length > 15000 ? content.slice(-15000) : content;
+  // Links JSON is at the START of the SSE content (first event: data chunk).
+  // Using slice(-15000) would miss it on large pages — use the beginning instead.
+  const textEnd = content.length > 15000 ? content.slice(0, 15000) : content;
 
   try {
     const response = await callGeminiWithRetry('Reitittäjä', log, () => {

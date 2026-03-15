@@ -169,11 +169,23 @@ export async function processLead(leadId: string) {
 
     // VAIHE 2: Haetaan rankattu lista alasivuehdokkaista (1 routing-kutsu)
     updateLeadStatus(leadId, { statusMessage: 'Reititetään alasivulle...' });
-    const candidates = await findContactUrlCandidates(
+    const rawCandidates = await findContactUrlCandidates(
       homeContent,
       effectiveDomain,
       (msg, level) => addLog(leadId, msg, level)
     );
+
+    // Filter out unusable candidates:
+    // - Hash-fragment URLs (e.g. #contact-us-5) — Jina ignores fragments, returns same page
+    // - CGI / PHP script URLs — typically server-side systems that Jina can't render
+    const candidates = rawCandidates.filter(url => {
+      try {
+        const u = new URL(url);
+        if (u.hash) return false;                          // anchor link → same page
+        if (/\/cgi[-/]|\.php$/i.test(u.pathname)) return false; // CGI/PHP → likely broken
+        return true;
+      } catch { return false; }
+    });
 
     const homeFullUrl = effectiveDomain;
 
