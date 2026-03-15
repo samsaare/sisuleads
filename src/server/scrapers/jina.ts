@@ -30,6 +30,13 @@ export interface JinaResult {
 }
 
 // Parses the final URL from Jina's SSE response (event: metadata / data: {"url": ...}).
+function extractUrlFromJson(json: any): string | null {
+  // Jina wraps response as { code, data: { url, content, ... } }
+  // but also supports flat { url, content, ... }
+  const url = json?.data?.url ?? json?.url;
+  return typeof url === 'string' && url.startsWith('http') ? url : null;
+}
+
 function parseFinalUrl(sseText: string, fallback: string): string {
   // SSE uses \r\n; strip \r so line comparisons work reliably
   const lines = sseText.split('\n').map(l => l.replace(/\r$/, ''));
@@ -41,10 +48,8 @@ function parseFinalUrl(sseText: string, fallback: string): string {
         if (lines[j].trim() === '') continue;
         if (lines[j].startsWith('data:')) {
           try {
-            const json = JSON.parse(lines[j].slice(5).trim());
-            if (typeof json.url === 'string' && json.url.startsWith('http')) {
-              return json.url;
-            }
+            const url = extractUrlFromJson(JSON.parse(lines[j].slice(5).trim()));
+            if (url) return url;
           } catch { /* malformed — keep looking */ }
         }
         break;
@@ -56,10 +61,8 @@ function parseFinalUrl(sseText: string, fallback: string): string {
   for (const line of lines) {
     if (!line.startsWith('data:')) continue;
     try {
-      const json = JSON.parse(line.slice(5).trim());
-      if (typeof json.url === 'string' && json.url.startsWith('http')) {
-        return json.url;
-      }
+      const url = extractUrlFromJson(JSON.parse(line.slice(5).trim()));
+      if (url) return url;
     } catch { /* not JSON */ }
   }
 
