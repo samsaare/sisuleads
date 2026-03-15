@@ -22,6 +22,11 @@ import { getDb } from './db/connection.js';
 
 const PORT = process.env.PORT || 3001;
 
+// Validate required API keys before starting
+if (!process.env.GEMINI_API_KEY) {
+  logger.error('FATAL: GEMINI_API_KEY puuttuu .env.local-tiedostosta. Palvelin ei voi käsitellä leadeja.');
+}
+
 // Initialize DB and recover any stuck leads from a previous session
 getDb();
 recoverStuckLeads();

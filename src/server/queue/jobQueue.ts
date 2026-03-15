@@ -58,6 +58,9 @@ export function enqueueCampaign(campaignId: string) {
   queue.onIdle().then(() => {
     isRunning = false;
     broadcastStatus();
+  }).catch(() => {
+    isRunning = false;
+    broadcastStatus();
   });
 
   return leads.length;

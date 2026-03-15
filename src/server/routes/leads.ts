@@ -40,6 +40,32 @@ router.get('/', (req, res) => {
   res.json(leads.map(mapLead));
 });
 
+// Export campaign leads as CSV — must be registered before /:id to avoid route conflict
+router.get('/export/csv', (req, res) => {
+  const { campaignId } = req.query;
+  if (!campaignId) return res.status(400).json({ error: 'campaignId is required' });
+
+  const db = getDb();
+  const leads = db.prepare(
+    'SELECT * FROM leads WHERE campaign_id = ? ORDER BY created_at DESC'
+  ).all(campaignId as string) as any[];
+
+  const header = 'Yritys,Verkkosivu,Nimi,Titteli,Sähköposti,Puhelin,Kommentti,Lähde,Löytyi';
+  const rows = leads.map(l =>
+    [
+      l.company_name, l.domain, l.contact_name, l.contact_title,
+      l.contact_email, l.contact_phone, l.extraction_comment,
+      l.source_url, l.found ? 'Kyllä' : 'Ei'
+    ]
+      .map(v => `"${String(v || '').replace(/"/g, '""')}"`)
+      .join(',')
+  );
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="sisulead_${campaignId}_${Date.now()}.csv"`);
+  res.send([header, ...rows].join('\n'));
+});
+
 // Get single lead with logs
 router.get('/:id', (req, res) => {
   const db = getDb();
@@ -113,32 +139,6 @@ router.delete('/:id', (req, res) => {
   const db = getDb();
   db.prepare('DELETE FROM leads WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
-});
-
-// Export campaign leads as CSV
-router.get('/export/csv', (req, res) => {
-  const { campaignId } = req.query;
-  if (!campaignId) return res.status(400).json({ error: 'campaignId is required' });
-
-  const db = getDb();
-  const leads = db.prepare(
-    'SELECT * FROM leads WHERE campaign_id = ? ORDER BY created_at DESC'
-  ).all(campaignId as string) as any[];
-
-  const header = 'Yritys,Verkkosivu,Nimi,Titteli,Sähköposti,Puhelin,Kommentti,Lähde,Löytyi';
-  const rows = leads.map(l =>
-    [
-      l.company_name, l.domain, l.contact_name, l.contact_title,
-      l.contact_email, l.contact_phone, l.extraction_comment,
-      l.source_url, l.found ? 'Kyllä' : 'Ei'
-    ]
-      .map(v => `"${String(v || '').replace(/"/g, '""')}"`)
-      .join(',')
-  );
-
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="sisulead_${campaignId}_${Date.now()}.csv"`);
-  res.send([header, ...rows].join('\n'));
 });
 
 export default router;

@@ -96,9 +96,14 @@ export async function processLead(leadId: string) {
 
   // Load campaign's persona config
   const campaignRow = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(lead.campaignId) as any;
-  const personaConfig: PersonaConfig | null = campaignRow?.persona_config
-    ? JSON.parse(campaignRow.persona_config)
-    : null;
+  let personaConfig: PersonaConfig | null = null;
+  if (campaignRow?.persona_config) {
+    try {
+      personaConfig = JSON.parse(campaignRow.persona_config);
+    } catch {
+      // Malformed JSON — proceed with default persona
+    }
+  }
 
   addLog(leadId, `Agentti käynnistetty: Aloitetaan kohteen ${lead.companyName} analyysi.`, 'info');
   updateLeadStatus(leadId, { status: 'processing', statusMessage: 'Tarkistetaan etusivu...' });

@@ -71,7 +71,21 @@ export async function fetchWithJina(
   const jinaKey = process.env.JINA_API_KEY;
   if (jinaKey) headers['Authorization'] = `Bearer ${jinaKey}`;
 
-  const response = await fetch(`${JINA_READER_URL}${targetUrl}`, { headers });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+
+  let response: Response;
+  try {
+    response = await fetch(`${JINA_READER_URL}${targetUrl}`, { headers, signal: controller.signal });
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      log('Jina Reader virhe: Aikakatkaisu (30s)', 'error');
+      throw new Error('Jina Reader timeout');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     log(`Jina Reader virhe: ${response.status} ${response.statusText}`, 'error');

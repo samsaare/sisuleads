@@ -30,8 +30,13 @@ export async function callGeminiWithRetry<T>(
         error.message?.includes('503') ||
         error.message?.toLowerCase().includes('overloaded') ||
         error.message?.toLowerCase().includes('busy');
+      const is429 =
+        error.status === 429 ||
+        error.message?.includes('429') ||
+        error.message?.toLowerCase().includes('quota') ||
+        error.message?.toLowerCase().includes('rate limit');
 
-      if (is503 && attempt < maxRetries) {
+      if ((is503 || is429) && attempt < maxRetries) {
         const delay = (attempt + 1) * 3000;
         log(
           `${taskName}: Gemini ruuhkautunut. Uudelleenyritys (${attempt + 1}/${maxRetries}) ${delay}ms kuluttua...`,
