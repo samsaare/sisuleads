@@ -20,7 +20,6 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { recoverStuckLeads } from './queue/jobQueue.js';
 import { getDb } from './db/connection.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
 
 // Initialize DB and recover any stuck leads from a previous session
@@ -40,7 +39,9 @@ app.use('/api/events', eventRoutes);
 
 // Serve the Vite production build in production
 if (process.env.NODE_ENV === 'production') {
-  const distPath = join(__dirname, '../../dist');
+  const distPath = process.env.SISULEAD_RESOURCES
+    ? join(process.env.SISULEAD_RESOURCES, 'dist')
+    : join(dirname(fileURLToPath(import.meta.url)), '../../dist');
   app.use(express.static(distPath));
   app.get('*', (_req, res) => {
     res.sendFile(join(distPath, 'index.html'));

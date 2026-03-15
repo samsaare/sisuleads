@@ -1,5 +1,8 @@
 // build-server.mjs
-// Bundles the Express server (TypeScript) into a single ESM JS file using esbuild.
+// Bundles the Express server (TypeScript) into a single CJS JS file using esbuild.
+// CJS (not ESM) is required so that:
+//   1. Node.js loads it without needing package.json "type": "module" in resources/dist-server/
+//   2. NODE_PATH works for resolving better-sqlite3 (ESM ignores NODE_PATH)
 // better-sqlite3 is kept external (native addon, handled by electron-builder).
 
 import { build } from 'esbuild';
@@ -12,20 +15,17 @@ await build({
   bundle: true,
   platform: 'node',
   target: 'node20',
-  format: 'esm',
+  format: 'cjs',
   outfile: 'dist-server/index.js',
   // Native addons and node-specific modules that can't be bundled
   external: [
     'better-sqlite3',
     '*.node',
-    // Keep these external so electron-builder packages them correctly
     'electron',
   ],
   // Inline .sql files as string constants (removes the readFileSync dependency)
   loader: { '.sql': 'text' },
-  // Source maps for easier debugging
   sourcemap: 'inline',
-  // Don't minify — readable stack traces are more useful
   minify: false,
 });
 

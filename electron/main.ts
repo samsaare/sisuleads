@@ -21,10 +21,15 @@ async function startServer(): Promise<void> {
     ? join(__dirname, '..', 'dist-server', 'index.js')
     : join(process.resourcesPath, 'dist-server', 'index.js');
 
-  // Resources path: where .env.local lives
+  // Resources path: where .env.local and dist/ live
   const resourcesPath = isDev
     ? join(__dirname, '..')                // project root in dev
     : process.resourcesPath;
+
+  // NODE_PATH so the forked server can find better-sqlite3 (unpacked from asar)
+  const nodeModulesPath = isDev
+    ? join(__dirname, '..', 'node_modules')
+    : join(process.resourcesPath, 'app.asar.unpacked', 'node_modules');
 
   serverProcess = fork(serverPath, [], {
     env: {
@@ -33,6 +38,7 @@ async function startServer(): Promise<void> {
       PORT: '3001',
       SISULEAD_USERDATA: userData,
       SISULEAD_RESOURCES: resourcesPath,
+      NODE_PATH: nodeModulesPath,
     },
     // Force ESM module loading (needed when "type": "module" in package.json)
     execArgv: [],
