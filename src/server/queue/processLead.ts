@@ -1,6 +1,7 @@
 import { getDb } from '../db/connection.js';
 import { fetchWithJina } from '../scrapers/jina.js';
-import { extractLead, findBestContactUrl } from '../ai/gemini.js';
+import { extractLead, findContactUrlCandidates } from '../ai/gemini.js';
+import type { ExtractionResult } from '../ai/gemini.js';
 import { broadcast } from './sseManager.js';
 import { logger } from '../logger.js';
 import type { Lead, LogEntry, PersonaConfig } from '../../shared/types.js';
@@ -141,30 +142,26 @@ export async function processLead(leadId: string) {
       addLog(leadId, 'Etusivulta löytyi vain yleinen yritysyhteystieto — jatketaan alasivulle.', 'warning');
     }
 
-    // VAIHE 2: LLM-reititys
+    // VAIHE 2: Haetaan rankattu lista alasivuehdokkaista (1 routing-kutsu)
     updateLeadStatus(leadId, { statusMessage: 'Reititetään alasivulle...' });
-    const targetUrl = await findBestContactUrl(
+    const candidates = await findContactUrlCandidates(
       homeContent,
       lead.domain,
       (msg, level) => addLog(leadId, msg, level)
     );
 
-    if (!targetUrl) {
-      // No subpage found — save whatever we have (could be generic or nothing)
+    const homeFullUrl = lead.domain.startsWith('http') ? lead.domain : `https://${lead.domain}`;
+
+    if (candidates.length === 0) {
+      // Ei yhtään ehdokasta — tallennetaan mitä on
       if (homeResult.found && homeResult.isGenericContact) {
         addLog(leadId, 'Ei yhteystietosivua. Tallennetaan yleinen yritysyhteystieto.', 'warning');
-        const fullUrl = lead.domain.startsWith('http') ? lead.domain : `https://${lead.domain}`;
         updateLeadStatus(leadId, {
-          status: 'completed',
-          statusMessage: 'Yleinen yhteystieto',
-          contactName: homeResult.name,
-          contactTitle: homeResult.title,
-          contactEmail: homeResult.email,
-          contactPhone: homeResult.phone,
+          status: 'completed', statusMessage: 'Yleinen yhteystieto',
+          contactName: homeResult.name, contactTitle: homeResult.title,
+          contactEmail: homeResult.email, contactPhone: homeResult.phone,
           extractionComment: homeResult.comment,
-          found: true,
-          isGenericContact: true,
-          sourceUrl: fullUrl,
+          found: true, isGenericContact: true, sourceUrl: homeFullUrl,
         });
       } else {
         addLog(leadId, 'Agentti lopetti työn. Ei selkeää yhteystietosivua.', 'warning');
@@ -173,53 +170,70 @@ export async function processLead(leadId: string) {
       return;
     }
 
-    // VAIHE 3: Alasivu
-    let pathname = targetUrl;
-    try { pathname = new URL(targetUrl).pathname; } catch {}
-    updateLeadStatus(leadId, { statusMessage: `Haetaan alasivu: ${pathname}...` });
+    // VAIHE 3: Käydään ehdokkaat läpi järjestyksessä (max 2)
+    let bestSubResult: ExtractionResult | null = null;
+    let bestSubUrl = '';
 
-    const subContent = await fetchWithJina(
-      targetUrl,
-      (msg, level) => addLog(leadId, msg, level)
-    );
-    const subResult = await extractLead(
-      subContent,
-      lead.companyName,
-      (msg, level) => addLog(leadId, msg, level),
-      personaConfig
-    );
+    for (let i = 0; i < candidates.length; i++) {
+      const targetUrl = candidates[i];
+      const attemptLabel = candidates.length > 1 ? ` (${i + 1}/${candidates.length})` : '';
+      let pathname = targetUrl;
+      try { pathname = new URL(targetUrl).pathname; } catch {}
 
-    // Determine final outcome
-    const finalFound = subResult.found || (homeResult.found && homeResult.isGenericContact);
-    const finalGeneric = subResult.isGenericContact || (!subResult.found && homeResult.isGenericContact);
+      updateLeadStatus(leadId, { statusMessage: `Haetaan alasivu${attemptLabel}: ${pathname}...` });
 
-    // Pick best result: prefer subpage personal > subpage generic > homepage generic
-    const useSubResult = subResult.found;
-    const usedResult = useSubResult ? subResult : homeResult;
-    const usedUrl = useSubResult ? targetUrl : (lead.domain.startsWith('http') ? lead.domain : `https://${lead.domain}`);
+      const subContent = await fetchWithJina(targetUrl, (msg, level) => addLog(leadId, msg, level));
+      const subResult = await extractLead(subContent, lead.companyName, (msg, level) => addLog(leadId, msg, level), personaConfig);
 
-    const isGeneric = useSubResult ? subResult.isGenericContact : homeResult.isGenericContact;
+      if (subResult.found && !subResult.isGenericContact) {
+        // Henkilökohtainen kontakti löytyi — lopetetaan heti
+        addLog(leadId, 'LÖYTYI: Henkilökohtaiset yhteystiedot poimittu alasivulta.', 'success');
+        updateLeadStatus(leadId, {
+          status: 'completed', statusMessage: 'Valmis',
+          contactName: subResult.name, contactTitle: subResult.title,
+          contactEmail: subResult.email, contactPhone: subResult.phone,
+          extractionComment: subResult.comment,
+          found: true, isGenericContact: false, sourceUrl: targetUrl,
+        });
+        return;
+      }
 
-    if (finalFound && !isGeneric) {
-      addLog(leadId, `LÖYTYI: Henkilökohtaiset yhteystiedot poimittu alasivulta.`, 'success');
-    } else if (finalFound && isGeneric) {
-      addLog(leadId, 'Agentti lopetti työn. Löydettiin vain yleinen yritysyhteystieto.', 'warning');
-    } else {
-      addLog(leadId, 'Agentti lopetti työn. Tietoja ei löytynyt.', 'warning');
+      if (subResult.found && subResult.isGenericContact && !bestSubResult) {
+        // Yleinen kontakti — tallennetaan parhaaksi toistaiseksi, jatketaan seuraavaan
+        bestSubResult = subResult;
+        bestSubUrl = targetUrl;
+        if (i + 1 < candidates.length) {
+          addLog(leadId, 'Alasivulta löytyi vain yleinen yhteystieto — kokeillaan seuraavaa ehdokasta.', 'warning');
+        }
+      }
+      // Ei löytynyt → jatketaan seuraavaan ehdokkaaseen
     }
 
-    updateLeadStatus(leadId, {
-      status: 'completed',
-      statusMessage: !finalFound ? 'Ei löytynyt' : isGeneric ? 'Yleinen yhteystieto' : 'Valmis',
-      contactName: usedResult.name,
-      contactTitle: usedResult.title,
-      contactEmail: usedResult.email,
-      contactPhone: usedResult.phone,
-      extractionComment: usedResult.comment,
-      found: finalFound,
-      isGenericContact: finalFound ? isGeneric : false,
-      sourceUrl: finalFound ? usedUrl : '',
-    });
+    // Kaikki ehdokkaat käyty läpi — otetaan paras käytettävissä oleva tulos
+    // Prioriteetti: alasivu generic > etusivu generic > ei löytynyt
+    const usedResult = bestSubResult ?? (homeResult.found ? homeResult : null);
+    const usedUrl = bestSubResult ? bestSubUrl : homeFullUrl;
+    const isGeneric = usedResult
+      ? (bestSubResult ? bestSubResult.isGenericContact : homeResult.isGenericContact)
+      : false;
+
+    if (!usedResult) {
+      addLog(leadId, 'Agentti lopetti työn. Tietoja ei löytynyt.', 'warning');
+      updateLeadStatus(leadId, { status: 'completed', statusMessage: 'Ei löytynyt' });
+    } else {
+      addLog(leadId, isGeneric
+        ? 'Agentti lopetti työn. Löydettiin vain yleinen yritysyhteystieto.'
+        : 'LÖYTYI: Yhteystiedot poimittu.',
+        isGeneric ? 'warning' : 'success');
+      updateLeadStatus(leadId, {
+        status: 'completed',
+        statusMessage: isGeneric ? 'Yleinen yhteystieto' : 'Valmis',
+        contactName: usedResult.name, contactTitle: usedResult.title,
+        contactEmail: usedResult.email, contactPhone: usedResult.phone,
+        extractionComment: usedResult.comment,
+        found: true, isGenericContact: isGeneric, sourceUrl: usedUrl,
+      });
+    }
   } catch (error: any) {
     logger.error(`processLead [${lead.domain}]:`, error.stack || error.message);
     addLog(leadId, `Agentti keskeytti työn virheen vuoksi: ${error.message}`, 'error');

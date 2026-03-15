@@ -46,12 +46,12 @@ export async function callGeminiWithRetry<T>(
   throw new Error('Max retries exceeded');
 }
 
-export async function findBestContactUrl(
+export async function findContactUrlCandidates(
   content: string,
   domain: string,
   log: (msg: string, level?: 'info' | 'success' | 'warning' | 'error') => void
-): Promise<string | null> {
-  log('Agentti (Reitittäjä): Etsitään todennäköisin yhteystietosivu linkeistä...', 'info');
+): Promise<string[]> {
+  log('Agentti (Reitittäjä): Etsitään yhteystietosivuehdokkaat linkeistä...', 'info');
   const textEnd = content.length > 15000 ? content.slice(-15000) : content;
 
   try {
@@ -59,33 +59,52 @@ export async function findBestContactUrl(
       const ai = getAi();
       return ai.models.generateContent({
         model: 'gemini-flash-latest',
-        contents: `Tehtävä: Analysoi alla oleva verkkosivun loppuosa, joka sisältää tiivistelmän sivun linkeistä.
+        contents: `Tehtävä: Analysoi alla oleva verkkosivun linkkilista.
 
 Domain: ${domain}
 
-Etsi linkkien joukosta YKSI (1) URL, joka todennäköisimmin sisältää yrityksen päättäjien yhteystiedot tai henkilöstön.
-Priorisoi sivuja kuten: /yhteystiedot, /tiimi, /meista, /contact, /about.
+Etsi linkeistä KORKEINTAAN KAKSI (2) URL-osoitetta, jotka todennäköisimmin sisältävät
+yrityksen henkilöstön tai päättäjien HENKILÖKOHTAISET yhteystiedot.
 
-PALAUTA VAIN JA AINOASTAAN URL-OSOITE tekstinä. Jos sopivaa linkkiä ei löydy, palauta teksti: EI_LOYTYNYT.
-Varmista, että palauttamasi URL alkaa "http", täydennä se tarvittaessa domainilla.
+Priorisoi sivut tässä järjestyksessä:
+1. /yhteystiedot, /tiimi, /henkilosto, /meista, /about, /contact, /people, /team
+2. Muut sivut, joilla voi olla henkilölistaus tai henkilökohtaisia yhteystietoja
 
-Teksti (jossa linkkilista):
+ÄLÄ SISÄLLYTÄ sivuja, jotka ovat todennäköisesti pelkkiä yhteydenottolomakkeita
+(esim. /ota-yhteytta, /contact-form, /lomake, /palaute, /yhteydenottolomake)
+— elleivät ne ole ainoa vaihtoehto eikä mitään muuta löydy.
+
+Palauta URL:t JSON-taulukkona tärkeysjärjestyksessä. Jos vain yksi hyvä vaihtoehto,
+palauta taulukko jossa yksi alkio. Jos ei yhtään sopivaa, palauta tyhjä taulukko [].
+Varmista että jokainen URL alkaa "http". Täydennä tarvittaessa domainilla.
+
+Linkkilista:
 ${textEnd}`,
-        config: { temperature: 0.1 },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+          },
+          temperature: 0.1,
+        },
       });
     });
 
-    const resultUrl = (response?.text || '').trim();
-    if (resultUrl === 'EI_LOYTYNYT' || !resultUrl.startsWith('http')) {
-      log('Agentti (Reitittäjä): Sopivaa alasivua ei löytynyt etusivun linkeistä.', 'warning');
-      return null;
-    }
+    const raw = JSON.parse(response?.text || '[]') as unknown[];
+    const candidates = raw
+      .filter((u): u is string => typeof u === 'string' && u.startsWith('http'))
+      .slice(0, 2);
 
-    log(`Agentti (Reitittäjä): Valitsi parhaaksi alasivuksi: ${resultUrl}`, 'success');
-    return resultUrl;
+    if (candidates.length === 0) {
+      log('Reitittäjä: Sopivaa alasivua ei löydetty.', 'warning');
+    } else {
+      log(`Reitittäjä: Ehdokkaat: ${candidates.join(', ')}`, 'info');
+    }
+    return candidates;
   } catch (error: any) {
     log(`Agentti (Reitittäjä) epäonnistui: ${error.message}`, 'error');
-    return null;
+    return [];
   }
 }
 
