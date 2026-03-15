@@ -22,11 +22,39 @@ const BASE_HEADERS: Record<string, string> = {
   'X-Locale': 'fi-FI',
 };
 
+export interface JinaResult {
+  text: string;
+  // The final URL after redirects, parsed from Jina's SSE metadata block.
+  // Falls back to the requested URL if metadata is absent.
+  finalUrl: string;
+}
+
+// Parses the final URL from Jina's SSE response (event: metadata / data: {"url": ...}).
+function parseFinalUrl(sseText: string, fallback: string): string {
+  const lines = sseText.split('\n');
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (lines[i].trim() === 'event: metadata') {
+      const dataLine = lines[i + 1];
+      if (dataLine?.startsWith('data:')) {
+        try {
+          const json = JSON.parse(dataLine.slice(5).trim());
+          if (typeof json.url === 'string' && json.url.startsWith('http')) {
+            return json.url;
+          }
+        } catch {
+          // malformed JSON — fall through to fallback
+        }
+      }
+    }
+  }
+  return fallback;
+}
+
 export async function fetchWithJina(
   url: string,
   log: (msg: string, level?: 'info' | 'success' | 'warning' | 'error') => void,
   customHeaders: Record<string, string> = {}
-): Promise<string> {
+): Promise<JinaResult> {
   const targetUrl = url.startsWith('http') ? url : `https://${url}`;
   log(`Jina Reader: Haetaan ${targetUrl}...`);
 
@@ -64,6 +92,8 @@ export async function fetchWithJina(
     throw new Error('Page content is 404');
   }
 
+  const finalUrl = parseFinalUrl(text, targetUrl);
+
   log(`Jina: Vastaus vastaanotettu (${text.length} merkkiä).`, 'success');
-  return text;
+  return { text, finalUrl };
 }

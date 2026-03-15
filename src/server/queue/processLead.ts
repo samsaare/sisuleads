@@ -105,11 +105,19 @@ export async function processLead(leadId: string) {
 
   try {
     // VAIHE 1: Etusivu
-    const homeContent = await fetchWithJina(
+    const { text: homeContent, finalUrl: homeFinalUrl } = await fetchWithJina(
       lead.domain,
       (msg, level) => addLog(leadId, msg, level),
       { 'X-With-links-Summary': 'true' }
     );
+
+    // Detect cross-domain redirect (e.g. beamark.fi → beam.fi)
+    const inputUrl = lead.domain.startsWith('http') ? lead.domain : `https://${lead.domain}`;
+    const inputHost = (() => { try { return new URL(inputUrl).hostname; } catch { return ''; } })();
+    const finalHost = (() => { try { return new URL(homeFinalUrl).hostname; } catch { return ''; } })();
+    if (inputHost && finalHost && inputHost !== finalHost) {
+      addLog(leadId, `Jina: Domain redirectasi ${inputHost} → ${finalHost}, käytetään uutta domainia alisivu-hauissa.`, 'info');
+    }
 
     const homeResult = await extractLead(
       homeContent,
@@ -120,7 +128,7 @@ export async function processLead(leadId: string) {
 
     // Found a real personal contact on homepage → done
     if (homeResult.found && !homeResult.isGenericContact) {
-      const fullUrl = lead.domain.startsWith('http') ? lead.domain : `https://${lead.domain}`;
+      const fullUrl = homeFinalUrl;
       addLog(leadId, 'LÖYTYI: Henkilökohtaiset yhteystiedot löytyivät suoraan etusivulta.', 'success');
       updateLeadStatus(leadId, {
         status: 'completed',
@@ -143,14 +151,15 @@ export async function processLead(leadId: string) {
     }
 
     // VAIHE 2: Haetaan rankattu lista alasivuehdokkaista (1 routing-kutsu)
+    // Käytetään homeFinalUrl:ia domainin lähteenä — havaitsee cross-domain redirectit
     updateLeadStatus(leadId, { statusMessage: 'Reititetään alasivulle...' });
     const candidates = await findContactUrlCandidates(
       homeContent,
-      lead.domain,
+      homeFinalUrl,
       (msg, level) => addLog(leadId, msg, level)
     );
 
-    const homeFullUrl = lead.domain.startsWith('http') ? lead.domain : `https://${lead.domain}`;
+    const homeFullUrl = homeFinalUrl;
 
     if (candidates.length === 0) {
       // Ei yhtään ehdokasta — tallennetaan mitä on
@@ -182,7 +191,7 @@ export async function processLead(leadId: string) {
 
       updateLeadStatus(leadId, { statusMessage: `Haetaan alasivu${attemptLabel}: ${pathname}...` });
 
-      const subContent = await fetchWithJina(targetUrl, (msg, level) => addLog(leadId, msg, level));
+      const { text: subContent } = await fetchWithJina(targetUrl, (msg, level) => addLog(leadId, msg, level));
       const subResult = await extractLead(subContent, lead.companyName, (msg, level) => addLog(leadId, msg, level), personaConfig);
 
       if (subResult.found && !subResult.isGenericContact) {
