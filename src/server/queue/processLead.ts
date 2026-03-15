@@ -198,6 +198,9 @@ export async function processLead(leadId: string) {
     // VAIHE 3: Käydään ehdokkaat läpi järjestyksessä (max 2)
     let bestSubResult: ExtractionResult | null = null;
     let bestSubUrl = '';
+    // Save first substantive subpage content for potential level-2 routing (avoids re-fetch)
+    let firstSubContentForL2: string | null = null;
+    let firstSubUrlForL2: string | null = null;
 
     for (let i = 0; i < candidates.length; i++) {
       const targetUrl = candidates[i];
@@ -208,10 +211,17 @@ export async function processLead(leadId: string) {
       updateLeadStatus(leadId, { statusMessage: `Haetaan alasivu${attemptLabel}: ${pathname}...` });
 
       const { text: subContent } = await fetchWithJina(targetUrl, (msg, level) => addLog(leadId, msg, level));
+
+      // Save for level-2 if this looks like a directory page with real content
+      const DIRECTORY_PATTERNS = /yhteystiedot|contact|tiimi|team|about|meista|meist%C3%A4|henkilosto|people/i;
+      if (!firstSubContentForL2 && subContent.length > 500 && DIRECTORY_PATTERNS.test(pathname)) {
+        firstSubContentForL2 = subContent;
+        firstSubUrlForL2 = targetUrl;
+      }
+
       const subResult = await extractLead(subContent, lead.companyName, (msg, level) => addLog(leadId, msg, level), personaConfig);
 
       if (subResult.found && !subResult.isGenericContact) {
-        // Henkilökohtainen kontakti löytyi — lopetetaan heti
         addLog(leadId, 'LÖYTYI: Henkilökohtaiset yhteystiedot poimittu alasivulta.', 'success');
         updateLeadStatus(leadId, {
           status: 'completed', statusMessage: 'Valmis',
@@ -224,69 +234,54 @@ export async function processLead(leadId: string) {
       }
 
       if (subResult.found && subResult.isGenericContact && !bestSubResult) {
-        // Yleinen kontakti — tallennetaan parhaaksi toistaiseksi, jatketaan seuraavaan
         bestSubResult = subResult;
         bestSubUrl = targetUrl;
         if (i + 1 < candidates.length) {
           addLog(leadId, 'Alasivulta löytyi vain yleinen yhteystieto — kokeillaan seuraavaa ehdokasta.', 'warning');
         }
       }
-      // Ei löytynyt → jatketaan seuraavaan ehdokkaaseen
     }
 
-    // VAIHE 3b: Level-2 routing — jos taso-1 sivu palautti sisältöä mutta ei kontaktia,
+    // VAIHE 3b: Level-2 routing — jos taso-1 hakemistosivu ei sisältänyt kontaktia,
     // kokeillaan syventyä yhden tason lisää (esim. /yhteystiedot → /yhteystietohaku).
-    // Aktivoituu vain kun: taso-1 sivu oli "hakemistosivu" (URL viittaa yhteystiedot/tiimi/jne.)
-    // eikä sieltä löytynyt mitään — ei tuhlata hakuja tyhjiin sivuihin.
-    if (!bestSubResult && !homeResult.found) {
-      const DIRECTORY_PATTERNS = /yhteystiedot|contact|tiimi|team|about|meista|meistä|henkilosto|henkilöstö|people/i;
-      // Etsi ensimmäinen taso-1 sivu joka palautti sisältöä (>500 merkkiä) mutta ei kontaktia
-      for (const candidate of candidates) {
-        try {
-          const candidatePath = new URL(candidate).pathname;
-          if (!DIRECTORY_PATTERNS.test(candidatePath)) continue;
-        } catch { continue; }
+    // Käytetään jo haettua sisältöä — ei uutta Jina-kutsua tässä vaiheessa.
+    if (!bestSubResult && !homeResult.found && firstSubContentForL2 && firstSubUrlForL2) {
+      addLog(leadId, `Reitittäjä (taso 2): Etsitään syvempiä linkkejä sivulta ${firstSubUrlForL2}`, 'info');
+      updateLeadStatus(leadId, { statusMessage: 'Syvennetään hakua (taso 2)...' });
 
-        // Re-fetch the candidate to get its content for level-2 routing
-        // (content was not saved from the loop above — fetch again)
-        updateLeadStatus(leadId, { statusMessage: 'Syvennetään hakua (taso 2)...' });
-        addLog(leadId, `Reitittäjä (taso 2): Etsitään syvempiä linkkejä sivulta ${candidate}`, 'info');
+      try {
+        const l2Candidates = await findContactUrlCandidates(
+          firstSubContentForL2,
+          firstSubUrlForL2,
+          (msg, level) => addLog(leadId, msg, level)
+        );
 
-        try {
-          const { text: l2Content } = await fetchWithJina(candidate, (msg, level) => addLog(leadId, msg, level));
-          if (l2Content.length < 500) break; // tyhjä sivu — ei kannata reitittää
+        const l2Url = l2Candidates.find(u => u !== firstSubUrlForL2);
+        if (l2Url) {
+          let l2Pathname = l2Url;
+          try { l2Pathname = new URL(l2Url).pathname; } catch {}
+          updateLeadStatus(leadId, { statusMessage: `Haetaan taso-2 alasivu: ${l2Pathname}...` });
 
-          const l2Candidates = await findContactUrlCandidates(
-            l2Content,
-            candidate, // käytetään taso-1 sivua domainina jotta relatiiviset linkit toimivat
-            (msg, level) => addLog(leadId, msg, level)
-          );
+          const { text: l2Content } = await fetchWithJina(l2Url, (msg, level) => addLog(leadId, msg, level));
+          const l2Result = await extractLead(l2Content, lead.companyName, (msg, level) => addLog(leadId, msg, level), personaConfig);
 
-          for (const l2Url of l2Candidates.slice(0, 1)) { // max 1 taso-2 haku
-            if (l2Url === candidate) continue; // ei haeta samaa sivua uudelleen
-            updateLeadStatus(leadId, { statusMessage: `Haetaan taso-2 alasivu: ${new URL(l2Url).pathname}...` });
-            const { text: l2SubContent } = await fetchWithJina(l2Url, (msg, level) => addLog(leadId, msg, level));
-            const l2Result = await extractLead(l2SubContent, lead.companyName, (msg, level) => addLog(leadId, msg, level), personaConfig);
-
-            if (l2Result.found && !l2Result.isGenericContact) {
-              addLog(leadId, 'LÖYTYI: Henkilökohtaiset yhteystiedot poimittu taso-2 alasivulta.', 'success');
-              updateLeadStatus(leadId, {
-                status: 'completed', statusMessage: 'Valmis',
-                contactName: l2Result.name, contactTitle: l2Result.title,
-                contactEmail: l2Result.email, contactPhone: l2Result.phone,
-                extractionComment: l2Result.comment,
-                found: true, isGenericContact: false, sourceUrl: l2Url,
-              });
-              return;
-            }
-            if (l2Result.found && l2Result.isGenericContact && !bestSubResult) {
-              bestSubResult = l2Result;
-              bestSubUrl = l2Url;
-            }
+          if (l2Result.found && !l2Result.isGenericContact) {
+            addLog(leadId, 'LÖYTYI: Henkilökohtaiset yhteystiedot poimittu taso-2 alasivulta.', 'success');
+            updateLeadStatus(leadId, {
+              status: 'completed', statusMessage: 'Valmis',
+              contactName: l2Result.name, contactTitle: l2Result.title,
+              contactEmail: l2Result.email, contactPhone: l2Result.phone,
+              extractionComment: l2Result.comment,
+              found: true, isGenericContact: false, sourceUrl: l2Url,
+            });
+            return;
           }
-        } catch { /* taso-2 virhe — jatketaan normaaliin lopetukseen */ }
-        break; // yksi taso-1 sivu riittää level-2 yritykselle
-      }
+          if (l2Result.found && l2Result.isGenericContact) {
+            bestSubResult = l2Result;
+            bestSubUrl = l2Url;
+          }
+        }
+      } catch { /* taso-2 virhe — jatketaan normaaliin lopetukseen */ }
     }
 
     // Kaikki ehdokkaat käyty läpi — otetaan paras käytettävissä oleva tulos

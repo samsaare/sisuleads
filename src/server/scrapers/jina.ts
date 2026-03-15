@@ -77,8 +77,16 @@ export async function fetchWithJina(
       ? targetUrl.replace('://www.', '://')
       : targetUrl.replace('://', '://www.');
 
+    const retryFetch = async (url: string, hdrs: Record<string, string>) => {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 20_000);
+      try { return await fetch(url, { headers: hdrs, signal: ac.signal }); }
+      catch { return null; }
+      finally { clearTimeout(t); }
+    };
+
     log(`Jina Reader: Kokeillaan URL-varianttia: ${wwwVariant}...`, 'info');
-    const r2 = await fetch(`${JINA_READER_URL}${wwwVariant}`, { headers }).catch(() => null);
+    const r2 = await retryFetch(`${JINA_READER_URL}${wwwVariant}`, headers);
 
     if (r2?.ok) {
       response = r2;
@@ -87,7 +95,7 @@ export async function fetchWithJina(
       const minHeaders: Record<string, string> = { Accept: 'text/event-stream', 'X-Locale': 'fi-FI' };
       if (headers['Authorization']) minHeaders['Authorization'] = headers['Authorization'];
       log('Jina Reader: Kokeillaan minimal headers -varianttia...', 'info');
-      const r3 = await fetch(`${JINA_READER_URL}${targetUrl}`, { headers: minHeaders }).catch(() => null);
+      const r3 = await retryFetch(`${JINA_READER_URL}${targetUrl}`, minHeaders);
       if (r3?.ok) {
         response = r3;
       } else {
