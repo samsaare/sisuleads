@@ -1,11 +1,7 @@
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { mkdirSync } from 'fs';
-
-// esbuild inlines .sql files as string constants when loader: { '.sql': 'text' } is set.
-// In development (tsx), the import is resolved normally via the file system.
-import SCHEMA_SQL from './schema.sql';
+import { mkdirSync, readFileSync } from 'fs';
 
 let _db: Database.Database | null = null;
 
@@ -17,6 +13,11 @@ function getDbPath(): string {
   // Development: use project-local data/ directory
   const __dirname = dirname(fileURLToPath(import.meta.url));
   return join(__dirname, '../../../data/sisulead.db');
+}
+
+function getSchemaSql(): string {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  return readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
 }
 
 export function getDb(): Database.Database {
@@ -31,8 +32,8 @@ export function getDb(): Database.Database {
     _db.pragma('journal_mode = WAL');
     _db.pragma('foreign_keys = ON');
 
-    // Run schema (inlined by esbuild, or imported as text in dev)
-    _db.exec(SCHEMA_SQL);
+    // Run schema (inlined by esbuild, or read from disk in dev)
+    _db.exec(getSchemaSql());
 
     // Runtime migrations: add columns that may be missing in existing DBs
     const campaignCols = (_db.prepare("PRAGMA table_info(campaigns)").all() as any[]).map(c => c.name);
