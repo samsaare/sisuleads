@@ -66,6 +66,37 @@ export async function fetchWithJina(
     clearTimeout(timeout);
   }
 
+  // On 400, retry with alternative URL variants before giving up.
+  // Some servers require/forbid the www. prefix; others reject extra headers.
+  if (response.status === 400) {
+    const errorBody = await response.text().catch(() => '');
+    log(`Jina Reader: 400 Bad Request — ${errorBody.slice(0, 200) || '(ei virheviestiä)'}`, 'warning');
+
+    // Variant 1: toggle www. prefix
+    const wwwVariant = targetUrl.includes('://www.')
+      ? targetUrl.replace('://www.', '://')
+      : targetUrl.replace('://', '://www.');
+
+    log(`Jina Reader: Kokeillaan URL-varianttia: ${wwwVariant}...`, 'info');
+    const r2 = await fetch(`${JINA_READER_URL}${wwwVariant}`, { headers }).catch(() => null);
+
+    if (r2?.ok) {
+      response = r2;
+    } else {
+      // Variant 2: minimal headers (no X-Remove-Selector / X-Respond-Timing)
+      const minHeaders: Record<string, string> = { Accept: 'text/event-stream', 'X-Locale': 'fi-FI' };
+      if (headers['Authorization']) minHeaders['Authorization'] = headers['Authorization'];
+      log('Jina Reader: Kokeillaan minimal headers -varianttia...', 'info');
+      const r3 = await fetch(`${JINA_READER_URL}${targetUrl}`, { headers: minHeaders }).catch(() => null);
+      if (r3?.ok) {
+        response = r3;
+      } else {
+        log(`Jina Reader virhe: 400 kaikilla varianteilla — sivu ei onnistu.`, 'error');
+        throw new Error(`Jina Reader failed: Bad Request`);
+      }
+    }
+  }
+
   if (!response.ok) {
     log(`Jina Reader virhe: ${response.status} ${response.statusText}`, 'error');
     throw new Error(`Jina Reader failed: ${response.statusText}`);

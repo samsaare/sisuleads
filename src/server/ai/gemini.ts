@@ -175,6 +175,7 @@ TÄRKEÄÄ:
 1. Käytä VAIN alla olevaa tekstiä. ÄLÄ käytä aiempaa tietoasi tai arvaa tietoja.
 2. Jos tietoa ei löydy tekstistä, aseta 'found': false.
 3. Älä hallusinoi sähköpostiosoitteita, jos niitä ei ole mainittu. Ainoa poikkeus on jos sivulla selvästi ilmoitetaan sähköpostien olevan standardimuotoa esim etunimi.sukunimi voit rakentaa tuon osoitteen.
+4. Etsi kontaktihenkilö KOKO sivulta: pääsisällöstä, footerista, yhteydenottolomakkeen yhteydestä, sivupalkista tai mistä tahansa muusta sivun osasta.
 
 KOHDEROOLIT:
 ${personaInstructions}
@@ -223,7 +224,7 @@ ${analysisText}`,
     } else if (result.found && result.isGenericContact) {
       log(`Gemini: Löydettiin henkilö mutta vain yleinen yhteystieto: ${result.name}`, 'warning');
     } else {
-      log('Gemini: Tietoja ei löytynyt tästä tekstiosasta.', 'warning');
+      log(`Gemini: Tietoja ei löytynyt tästä tekstiosasta. (${analysisText.length} merkkiä analysoitu, alku: "${analysisText.slice(0, 150).replace(/\n/g, ' ')}")`, 'warning');
     }
     return result;
   } catch (error: any) {
