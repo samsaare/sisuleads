@@ -109,20 +109,32 @@ export async function processLead(leadId: string) {
   updateLeadStatus(leadId, { status: 'processing', statusMessage: 'Tarkistetaan etusivu...' });
 
   try {
+    // Pre-flight: resolve cross-domain redirects (e.g. beamark.fi → beam.fi)
+    // Direct HEAD request lets Node.js follow redirects; response.url = final URL.
+    const inputUrl = lead.domain.startsWith('http') ? lead.domain : `https://${lead.domain}`;
+    const effectiveDomain = await (async () => {
+      try {
+        const ac = new AbortController();
+        setTimeout(() => ac.abort(), 5000);
+        const res = await fetch(inputUrl, { method: 'HEAD', redirect: 'follow', signal: ac.signal });
+        return res.url || inputUrl;
+      } catch {
+        return inputUrl;
+      }
+    })();
+
+    if (effectiveDomain !== inputUrl) {
+      const from = new URL(inputUrl).hostname;
+      const to = new URL(effectiveDomain).hostname;
+      addLog(leadId, `Domain redirectasi ${from} → ${to}, käytetään uutta domainia alisivu-hauissa.`, 'info');
+    }
+
     // VAIHE 1: Etusivu
-    const { text: homeContent, finalUrl: homeFinalUrl } = await fetchWithJina(
+    const { text: homeContent } = await fetchWithJina(
       lead.domain,
       (msg, level) => addLog(leadId, msg, level),
       { 'X-With-links-Summary': 'true' }
     );
-
-    // Detect cross-domain redirect (e.g. beamark.fi → beam.fi)
-    const inputUrl = lead.domain.startsWith('http') ? lead.domain : `https://${lead.domain}`;
-    const inputHost = (() => { try { return new URL(inputUrl).hostname; } catch { return ''; } })();
-    const finalHost = (() => { try { return new URL(homeFinalUrl).hostname; } catch { return ''; } })();
-    if (inputHost && finalHost && inputHost !== finalHost) {
-      addLog(leadId, `Jina: Domain redirectasi ${inputHost} → ${finalHost}, käytetään uutta domainia alisivu-hauissa.`, 'info');
-    }
 
     const homeResult = await extractLead(
       homeContent,
@@ -133,7 +145,7 @@ export async function processLead(leadId: string) {
 
     // Found a real personal contact on homepage → done
     if (homeResult.found && !homeResult.isGenericContact) {
-      const fullUrl = homeFinalUrl;
+      const fullUrl = effectiveDomain;
       addLog(leadId, 'LÖYTYI: Henkilökohtaiset yhteystiedot löytyivät suoraan etusivulta.', 'success');
       updateLeadStatus(leadId, {
         status: 'completed',
@@ -156,15 +168,14 @@ export async function processLead(leadId: string) {
     }
 
     // VAIHE 2: Haetaan rankattu lista alasivuehdokkaista (1 routing-kutsu)
-    // Käytetään homeFinalUrl:ia domainin lähteenä — havaitsee cross-domain redirectit
     updateLeadStatus(leadId, { statusMessage: 'Reititetään alasivulle...' });
     const candidates = await findContactUrlCandidates(
       homeContent,
-      homeFinalUrl,
+      effectiveDomain,
       (msg, level) => addLog(leadId, msg, level)
     );
 
-    const homeFullUrl = homeFinalUrl;
+    const homeFullUrl = effectiveDomain;
 
     if (candidates.length === 0) {
       // Ei yhtään ehdokasta — tallennetaan mitä on

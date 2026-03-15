@@ -24,49 +24,9 @@ const BASE_HEADERS: Record<string, string> = {
 
 export interface JinaResult {
   text: string;
-  // The final URL after redirects, parsed from Jina's SSE metadata block.
-  // Falls back to the requested URL if metadata is absent.
+  // The URL that was actually requested (after local normalization).
+  // Cross-domain redirect detection is handled in processLead via resolveRedirect().
   finalUrl: string;
-}
-
-// Parses the final URL from Jina's SSE response (event: metadata / data: {"url": ...}).
-function extractUrlFromJson(json: any): string | null {
-  // Jina wraps response as { code, data: { url, content, ... } }
-  // but also supports flat { url, content, ... }
-  const url = json?.data?.url ?? json?.url;
-  return typeof url === 'string' && url.startsWith('http') ? url : null;
-}
-
-function parseFinalUrl(sseText: string, fallback: string): string {
-  // SSE uses \r\n; strip \r so line comparisons work reliably
-  const lines = sseText.split('\n').map(l => l.replace(/\r$/, ''));
-
-  // Look for event: metadata, then find the next non-empty data: line
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trim() === 'event: metadata') {
-      for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
-        if (lines[j].trim() === '') continue;
-        if (lines[j].startsWith('data:')) {
-          try {
-            const url = extractUrlFromJson(JSON.parse(lines[j].slice(5).trim()));
-            if (url) return url;
-          } catch { /* malformed — keep looking */ }
-        }
-        break;
-      }
-    }
-  }
-
-  // Fallback: scan all data: lines for any JSON blob containing a url field
-  for (const line of lines) {
-    if (!line.startsWith('data:')) continue;
-    try {
-      const url = extractUrlFromJson(JSON.parse(line.slice(5).trim()));
-      if (url) return url;
-    } catch { /* not JSON */ }
-  }
-
-  return fallback;
 }
 
 export async function fetchWithJina(
@@ -125,8 +85,6 @@ export async function fetchWithJina(
     throw new Error('Page content is 404');
   }
 
-  const finalUrl = parseFinalUrl(text, targetUrl);
-
   log(`Jina: Vastaus vastaanotettu (${text.length} merkkiä).`, 'success');
-  return { text, finalUrl };
+  return { text, finalUrl: targetUrl };
 }
